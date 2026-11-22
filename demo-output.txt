@@ -1,0 +1,39 @@
+CredBroker demo - trace trace-cred-demo-0001 - clock 2026-01-01T00:00:00Z
+========================================================================
+
+DEMO 1 - scoped issue + successful in-scope use
+  issued token (jti cred-0001, scope db/factory/pumps [read], TTL 300s)
+  use db/factory/pumps read -> OK: pump P-104: operational, no maintenance hold
+  (the secret was consumed inside the tool-side call; only the
+   work result above ever came back to the agent)
+
+DEMO 2 - out-of-scope use rejected
+  use db/factory/pumps write -> REJECTED (action 'write' was never granted): action 'write' is not in the token's actions ['read']
+  use deploy/checkout-api read -> REJECTED (resource outside the token's scope): resource 'deploy/checkout-api' is outside the token's scope 'db/factory/pumps'
+
+DEMO 3 - expired token rejected
+  advancing the clock 301s (token TTL was 300s)...
+  use after expiry -> REJECTED: token expired at 1767225900 (now 1767225901)
+
+DEMO 4 - scope-down: agent asks broad, policy grants narrow
+  asked:    resource db/*, actions [read, write], TTL 3600s
+  granted:  resource db/factory/*, actions ['read'], TTL 300s (jti cred-0002)
+  use db/factory/inventory read -> OK: SKU-2211 gaskets: 14 in stock at plant store
+  use write under scoped-down token -> REJECTED: action 'write' is not in the token's actions ['read']
+
+DEMO 5 - revocation mid-flight
+  use deploy/checkout-api deploy -> OK: checkout-api deploy started (build 4821)
+  revoked cred-0003 while it still had time left
+  use after revoke -> REJECTED: token cred-0003 has been revoked
+
+AUDIT - hash chain over every decision, issue, use, and revoke
+  15 events: policy_decision, issue, use, use_rejected, use_rejected, use_rejected, policy_decision, issue, use, use_rejected, policy_decision, issue, use, revoke, use_rejected
+  chain verify: OK - chain intact
+  decision_records: 3 (policy decisions, computed at decision time)
+  all 15 events carry trace_id trace-cred-demo-0001: True
+LEAK CHECK - searching the full transcript above (everything the
+agent ever saw, plus this report) for the backing store's secrets:
+  db/factory/pumps: secret occurs 0 time(s)
+  db/factory/inventory: secret occurs 0 time(s)
+  deploy/checkout-api: secret occurs 0 time(s)
+  RESULT: PASS - no secret ever reached the agent side
