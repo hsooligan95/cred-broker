@@ -120,13 +120,17 @@ class Broker:
         emit_events_if_configured(self._audit.events[-2:])
         return token
 
-    def use(self, token: str, *, resource: str, action: str,
-            agent: str) -> UseResult:
-        """Verify a token for one concrete use; perform the work.
+    def verify_token(self, token: str, *, resource: str, action: str,
+                     agent: str) -> dict:
+        """Verify a token for one concrete use WITHOUT performing work.
 
-        Fail closed: signature, expiry, revocation, agent binding, and
-        scope are all checked, every rejection is audited, and the
-        secret is touched only after all checks pass.
+        This is the check half of ``use`` — the exact semantics an
+        external verifier (e.g. agent-gate's broker mode, which
+        re-implements them in TypeScript) must reproduce: signature,
+        then expiry (against the injected clock), then revocation,
+        then agent binding, then resource scope, then action scope.
+        Fail closed: every rejection is audited as ``use_rejected``
+        and raised as TokenError. Returns the claims on success.
         """
         try:
             claims = tokens.verify(token, self._key)
@@ -158,6 +162,19 @@ class Broker:
         if action not in claims["actions"]:
             raise reject(f"action {action!r} is not in the token's "
                          f"actions {claims['actions']}")
+        return claims
+
+    def use(self, token: str, *, resource: str, action: str,
+            agent: str) -> UseResult:
+        """Verify a token for one concrete use; perform the work.
+
+        Fail closed: all of ``verify_token``'s checks run first, and
+        the secret is touched only after all of them pass.
+        """
+        claims = self.verify_token(token, resource=resource, action=action,
+                                   agent=agent)
+        trace_id = claims.get("trace_id", "")
+        jti = claims.get("jti", "?")
         result = self._store.perform(resource, action)
         event = self._log(agent, trace_id, "use",
                           {"jti": jti, "resource": resource,

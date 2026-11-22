@@ -19,7 +19,7 @@ governs *what an agent may do*; CredBroker governs *what it may hold*.
 
 ```bash
 PYTHONPATH=src python3 -m credbroker.demo   # the five demos, deterministic
-PYTHONPATH=src python3 -m unittest discover -s tests   # 18 tests
+PYTHONPATH=src python3 -m unittest discover -s tests   # 26 tests
 ```
 
 No dependencies — Python 3.11+ standard library only (HMAC-SHA256
@@ -103,14 +103,39 @@ agent ever saw, plus this report) for the backing store's secrets:
   agent-trace's own schema module, append into a real AgentTrace
   store, and the store's chain verifies (15 events, OK).
 
-## Tests — 18, all passing
+## Interlocks
+
+**CredBroker → AgentGate.** [AgentGate](https://github.com/hsooligan95/agent-gate)
+governs what an agent may *do*; in its optional broker mode it also
+requires a CredBroker token before a call executes. Two pieces here
+support that bridge:
+
+- **`Broker.verify_token`** — the check half of `use`, exposed on its
+  own: signature → expiry → revocation → agent binding → resource
+  scope → action scope, audited rejections included, without
+  performing any work. It is the semantic contract the gate's
+  TypeScript verifier reproduces.
+- **`credbroker.mint_cli`** — mints bridge tokens with the real
+  broker and policy (bridge ceilings: resource `tool/*`, action
+  `call` — a gate tool call maps to resource `tool/<tool name>`),
+  writing the token to a file the gateway reads. `--expired` mints
+  an already-expired token; `--revoke-file` revokes and records the
+  jti for the gate's revocation check.
+
+The composition is a local bridge between two demos: a shared
+synthetic HMAC key and files on disk, not a network protocol.
+
+## Tests — 26, all passing
 
 The five demos as tests (including the boundary case: valid at
 TTL−1s, rejected at TTL+1s), scope-down cuts recorded exactly,
 unknown-agent denial audited as a decision record, token tampering
 (flipped payload char, re-signed claims with a wrong key), agent
 binding, audit-chain verification, chain tamper detected at the exact
-sequence number, and refusal to extend a broken chain.
+sequence number, and refusal to extend a broken chain — plus the
+bridge: `verify_token` scope/expiry/binding behaviour, the verify
+order (expiry reported before scope), and `mint_cli` writing usable
+token and revocation files.
 
 ## Limitations — read these
 
